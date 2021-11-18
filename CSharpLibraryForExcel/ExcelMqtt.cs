@@ -21,6 +21,8 @@ namespace CSharpLibraryForExcel
         private string mUsername;
         private string mPassword;
         private string mTopic;
+        private int mPropertyRow;
+        private int mStartRecordRow;
 
         [ComVisible(true)]
         public void SetExcelFileName(string excelFileName)
@@ -90,20 +92,32 @@ namespace CSharpLibraryForExcel
         }
 
         [ComVisible(true)]
+        public void SetPropertyRow(int rowNumber)
+        {
+            mPropertyRow = rowNumber;
+        }
+
+        [ComVisible(true)]
+        public void SetStartRecordRow(int rowNumber)
+        {
+            mStartRecordRow = rowNumber;
+        }
+
+        [ComVisible(true)]
         public void Publish()
         {
             using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
             {
                 ExcelWorksheet sheet = xlPackage.Workbook.Worksheets.First();
-                int totalRows = sheet.Dimension.End.Row;
+                int totalRows = sheet.Dimension.End.Row - mStartRecordRow + 1;
                 int totalColumns = sheet.Dimension.End.Column;
 
                 var columnNames = sheet
-                    .Cells[1, 1, 1, totalColumns]
+                    .Cells[mPropertyRow, 1, mPropertyRow, totalColumns]
                     .Select(c => c.Value == null ? string.Empty : c.Value.ToString());
 
                 var rows = new JArray();
-                for (int rowNum = 2; rowNum <= totalRows; rowNum++)
+                for (int rowNum = mStartRecordRow; rowNum <= sheet.Dimension.End.Row; rowNum++)
                 {
                     var row = sheet
                         .Cells[rowNum, 1, rowNum, totalColumns]
