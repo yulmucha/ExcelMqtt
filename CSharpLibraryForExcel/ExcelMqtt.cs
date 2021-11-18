@@ -98,14 +98,28 @@ namespace CSharpLibraryForExcel
                 int totalRows = sheet.Dimension.End.Row;
                 int totalColumns = sheet.Dimension.End.Column;
 
+                var columnNames = sheet
+                    .Cells[1, 1, 1, totalColumns]
+                    .Select(c => c.Value == null ? string.Empty : c.Value.ToString());
+
                 var rows = new JArray();
-                for (int rowNum = 1; rowNum <= totalRows; rowNum++)
+                for (int rowNum = 2; rowNum <= totalRows; rowNum++)
                 {
                     var row = sheet
                         .Cells[rowNum, 1, rowNum, totalColumns]
                         .Select(c => c.Value == null ? string.Empty : c.Value.ToString());
-                    rows.Add(string.Join(",", row));
+                    var rowObj = new JObject();
+                    for (int i = 0; i < row.Count(); i++)
+                    {
+                        rowObj.Add(columnNames.ElementAt(i), row.ElementAt(i));
+                    }
+                    rows.Add(rowObj);
                 }
+
+                var msg = new JObject();
+                msg.Add("rows", totalRows);
+                msg.Add("columns", totalColumns);
+                msg.Add("data", rows);
 
                 var mqttClient = new MqttClient(
                     brokerHostName: mBrokerHostName,
@@ -126,7 +140,7 @@ namespace CSharpLibraryForExcel
 
                 mqttClient.Publish(
                     topic: mTopic,
-                    message: Encoding.UTF8.GetBytes(rows.ToString()),
+                    message: Encoding.UTF8.GetBytes(msg.ToString()),
                     qosLevel: MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE,
                     retain: false);
             }
