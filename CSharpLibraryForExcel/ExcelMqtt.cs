@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json.Linq;
 using OfficeOpenXml;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -103,61 +104,67 @@ namespace CSharpLibraryForExcel
             mStartRecordRow = rowNumber;
         }
 
-        [ComVisible(true)]
-        public void Publish()
+        private JObject labelRow(IEnumerable<string> columnNames, IEnumerable<string> row)
         {
-            using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
+            var rowObj = new JObject();
+            for (int i = 0; i < row.Count(); i++)
             {
-                ExcelWorksheet sheet = xlPackage.Workbook.Worksheets.First();
-                int totalRows = sheet.Dimension.End.Row - mStartRecordRow + 1;
-                int totalColumns = sheet.Dimension.End.Column;
+                rowObj.Add(columnNames.ElementAt(i), row.ElementAt(i));
+            }
+            return rowObj;
+        }
 
-                var columnNames = sheet
-                    .Cells[mPropertyRow, 1, mPropertyRow, totalColumns]
-                    .Select(c => c.Value == null ? string.Empty : c.Value.ToString());
-
-                var rows = new JArray();
-                for (int rowNum = mStartRecordRow; rowNum <= sheet.Dimension.End.Row; rowNum++)
-                {
-                    var row = sheet
-                        .Cells[rowNum, 1, rowNum, totalColumns]
-                        .Select(c => c.Value == null ? string.Empty : c.Value.ToString());
-                    var rowObj = new JObject();
-                    for (int i = 0; i < row.Count(); i++)
-                    {
-                        rowObj.Add(columnNames.ElementAt(i), row.ElementAt(i));
-                    }
-                    rows.Add(rowObj);
-                }
-
-                var msg = new JObject();
-                msg.Add("rows", totalRows);
-                msg.Add("columns", totalColumns);
-                msg.Add("data", rows);
-
-                var mqttClient = new MqttClient(
+        private void publish(JObject msg)
+        {
+            var mqttClient = new MqttClient(
                     brokerHostName: mBrokerHostName,
                     brokerPort: mBrokerPort,
                     secure: false,
                     caCert: null);
 
-                mqttClient.Connect(
-                    clientId: mClientId,
-                    username: mUsername,
-                    password: mPassword);
+            mqttClient.Connect(
+                clientId: mClientId,
+                username: mUsername,
+                password: mPassword);
 
-                if (!mqttClient.IsConnected)
+            if (!mqttClient.IsConnected)
+            {
+                Debug.WriteLine("connection falied");
+                return;
+            }
+
+            mqttClient.Publish(
+                topic: mTopic,
+                message: Encoding.UTF8.GetBytes(msg.ToString()),
+                qosLevel: MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE,
+                retain: false);
+        }
+
+        [ComVisible(true)]
+        public void Publish()
+        {
+            var msg = new JObject();
+
+            using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
+            {
+                ExcelWorksheet sheet = xlPackage.Workbook.Worksheets.First();
+                int totalRecords = sheet.Dimension.End.Row - mStartRecordRow + 1;
+                int totalColumns = sheet.Dimension.End.Column;
+
+                var columnNames = sheet.SelectRow(mPropertyRow);
+
+                var rows = new JArray();
+                for (int rowNum = mStartRecordRow; rowNum <= sheet.Dimension.End.Row; rowNum++)
                 {
-                    Debug.WriteLine("connection falied");
-                    return;
+                    rows.Add(labelRow(columnNames, sheet.SelectRow(rowNum)));
                 }
 
-                mqttClient.Publish(
-                    topic: mTopic,
-                    message: Encoding.UTF8.GetBytes(msg.ToString()),
-                    qosLevel: MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE,
-                    retain: false);
+                msg.Add("rows", totalRecords);
+                msg.Add("columns", totalColumns);
+                msg.Add("data", rows);
             }
+
+            publish(msg);
         }
     }
 }
