@@ -26,6 +26,8 @@ namespace CSharpLibraryForExcel
         private string mTopic;
         private int mPropertyRow;
         private int mStartRecordRow;
+        private int mChunkSize;
+        private static MqttClient mMqttClient;
 
         [ComVisible(true)]
         public void SetExcelFileName(string excelFileName)
@@ -117,6 +119,12 @@ namespace CSharpLibraryForExcel
             mStartRecordRow = rowNumber;
         }
 
+        [ComVisible(true)]
+        public void SetChunkSize(int size)
+        {
+            mChunkSize = size;
+        }
+
         private ExcelWorksheet getSheet(ExcelPackage xlPackage)
         {
             if (xlPackage.Workbook.Worksheets.Count == 1)
@@ -141,26 +149,32 @@ namespace CSharpLibraryForExcel
             return rowObj;
         }
 
-        private void publish(JObject msg)
+        private void connect()
         {
-            var mqttClient = new MqttClient(
+            mMqttClient = new MqttClient(
                     brokerHostName: mBrokerHostName,
                     brokerPort: mBrokerPort,
                     secure: false,
                     caCert: null);
 
-            mqttClient.Connect(
+            mMqttClient.Connect(
                 clientId: mClientId,
                 username: mUsername,
                 password: mPassword);
 
-            if (!mqttClient.IsConnected)
+            if (!mMqttClient.IsConnected)
             {
                 Debug.WriteLine("connection falied");
                 return;
             }
 
-            mqttClient.Publish(
+            mMqttClient.MqttMsgPublishReceived += MqttMsgPublishReceived;
+            mMqttClient.Subscribe(new string[] { mTopic }, new byte[] { MqttMsgBase.QOS_LEVEL_AT_MOST_ONCE });
+        }
+
+        private void publish(JObject msg)
+        {
+            mMqttClient.Publish(
                 topic: mTopic,
                 message: Encoding.UTF8.GetBytes(msg.ToString()),
                 qosLevel: MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE,
@@ -170,13 +184,13 @@ namespace CSharpLibraryForExcel
         [ComVisible(true)]
         public void Publish()
         {
-            var msg = new JObject();
+            var messages = new List<JObject>();
 
             using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
             {
                 ExcelWorksheet sheet = getSheet(xlPackage);
                 int totalRecords = sheet.Dimension.End.Row - mStartRecordRow + 1;
-                int totalColumns = sheet.Dimension.End.Column;
+                int chunkCount = (int)Math.Ceiling((double)totalRecords / mChunkSize);
 
                 var columnNames = sheet.SelectRow(mPropertyRow);
 
@@ -186,12 +200,35 @@ namespace CSharpLibraryForExcel
                     rows.Add(labelRow(columnNames, sheet.SelectRow(rowNum)));
                 }
 
-                msg.Add("rows", totalRecords);
-                msg.Add("columns", totalColumns);
-                msg.Add("data", rows);
+                var chunk = new JArray();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    chunk.Add(rows[i]);
+                    if (i == rows.Count - 1 || chunk.Count % mChunkSize == 0)
+                    {
+                        messages.Add(new JObject {
+                                { "rows", totalRecords },
+                                { "chunkSequence", i / mChunkSize + 1},
+                                { "chunks", chunkCount},
+                                { "chunkSize", mChunkSize },
+                                { "columns", sheet.Dimension.End.Column},
+                                { "data", chunk }
+                            });
+                        chunk = new JArray();
+                    }
+                }
             }
+            connect();
+            messages.ForEach(o => publish(o));
+        }
 
-            publish(msg);
+        private static void MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
+        {
+            var json = JObject.Parse(Encoding.UTF8.GetString(e.Message, 0, e.Message.Length));
+            if (json.GetValue("chunkSequence").Equals(json.GetValue("chunks")))
+            {
+                mMqttClient.Disconnect();
+            }
         }
     }
 }
