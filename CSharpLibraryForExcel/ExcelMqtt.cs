@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json.Linq;
 using OfficeOpenXml;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -16,6 +17,7 @@ namespace CSharpLibraryForExcel
     public class ExcelMqtt
     {
         private string mExcelFileName;
+        private string mExcelSheetName;
         private string mBrokerHostName;
         private int mBrokerPort;
         private string mClientId;
@@ -34,6 +36,17 @@ namespace CSharpLibraryForExcel
             }
 
             mExcelFileName = excelFileName;
+        }
+
+        [ComVisible(true)]
+        public void SetExcelSheetName(string excelSheetName)
+        {
+            if (string.IsNullOrWhiteSpace(excelSheetName))
+            {
+                return;
+            }
+
+            mExcelSheetName = excelSheetName;
         }
 
         [ComVisible(true)]
@@ -104,6 +117,20 @@ namespace CSharpLibraryForExcel
             mStartRecordRow = rowNumber;
         }
 
+        private ExcelWorksheet getSheet(ExcelPackage xlPackage)
+        {
+            if (xlPackage.Workbook.Worksheets.Count == 1)
+            {
+                return xlPackage.Workbook.Worksheets.First();
+            }
+            else
+            {
+                return xlPackage.Workbook.Worksheets
+                    .Where(s => s.Name.Equals(mExcelSheetName, StringComparison.OrdinalIgnoreCase))
+                    .Single();
+            }
+        }
+
         private JObject labelRow(IEnumerable<string> columnNames, IEnumerable<string> row)
         {
             var rowObj = new JObject();
@@ -147,7 +174,7 @@ namespace CSharpLibraryForExcel
 
             using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
             {
-                ExcelWorksheet sheet = xlPackage.Workbook.Worksheets.First();
+                ExcelWorksheet sheet = getSheet(xlPackage);
                 int totalRecords = sheet.Dimension.End.Row - mStartRecordRow + 1;
                 int totalColumns = sheet.Dimension.End.Column;
 
