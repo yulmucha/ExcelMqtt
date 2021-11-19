@@ -149,6 +149,34 @@ namespace CSharpLibraryForExcel
             return rowObj;
         }
 
+        private JArray composeRecords(ExcelWorksheet sheet, int propertyRow, int startRecordRow)
+        {
+            var columnNames = sheet.SelectRow(propertyRow);
+            var records = new JArray();
+            for (int rowNum = startRecordRow; rowNum <= sheet.Dimension.End.Row; rowNum++)
+            {
+                records.Add(labelRow(columnNames, sheet.SelectRow(rowNum)));
+            }
+
+            return records;
+        }
+
+        private List<JArray> chunkRecords(JArray records, int chunkSize)
+        {
+            List<JArray> chunks = new List<JArray>();
+            var chunk = new JArray();
+            for (int i = 0; i < records.Count; i++)
+            {
+                chunk.Add(records[i]);
+                if (i == records.Count - 1 || chunk.Count % chunkSize == 0)
+                {
+                    chunks.Add(chunk);
+                    chunk = new JArray();
+                }
+            }
+            return chunks;
+        }
+
         private void connect()
         {
             mMqttClient = new MqttClient(
@@ -189,36 +217,21 @@ namespace CSharpLibraryForExcel
             using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
             {
                 ExcelWorksheet sheet = getSheet(xlPackage);
+
+                JArray records = composeRecords(sheet, mPropertyRow, mStartRecordRow);
+
+                List<JArray> chunks = chunkRecords(records, mChunkSize);
+
                 int totalRecords = sheet.Dimension.End.Row - mStartRecordRow + 1;
-                int chunkCount = (int)Math.Ceiling((double)totalRecords / mChunkSize);
-
-                var columnNames = sheet.SelectRow(mPropertyRow);
-
-                var rows = new JArray();
-                for (int rowNum = mStartRecordRow; rowNum <= sheet.Dimension.End.Row; rowNum++)
-                {
-                    rows.Add(labelRow(columnNames, sheet.SelectRow(rowNum)));
-                }
-
-                var chunk = new JArray();
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    chunk.Add(rows[i]);
-                    if (i == rows.Count - 1 || chunk.Count % mChunkSize == 0)
-                    {
-                        messages.Add(new JObject {
-                                { "rows", totalRecords },
-                                { "chunkSequence", i / mChunkSize + 1},
-                                { "chunks", chunkCount},
-                                { "chunkSize", mChunkSize },
-                                { "columns", sheet.Dimension.End.Column},
-                                { "data", chunk }
-                            });
-                        chunk = new JArray();
-                    }
-                }
+                messages = chunks.ToMessage(
+                    totalRecords: totalRecords,
+                    totalColumns: sheet.Dimension.End.Column,
+                    totalChunks: (int)Math.Ceiling((double)totalRecords / mChunkSize),
+                    chunkSize: mChunkSize);
             }
+
             connect();
+
             messages.ForEach(o => publish(o));
         }
 
