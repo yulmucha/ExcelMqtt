@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
+using Excel = Microsoft.Office.Interop.Excel;
 
 namespace CSharpLibraryForExcel
 {
@@ -27,7 +28,8 @@ namespace CSharpLibraryForExcel
         private int mPropertyRow;
         private int mStartRecordRow;
         private int mChunkSize;
-        private static MqttClient mMqttClient;
+        private MqttClient mMqttClient;
+        private ExcelWorksheet mWorksheet;
 
         [ComVisible(true)]
         public void SetExcelFileName(string excelFileName)
@@ -197,10 +199,10 @@ namespace CSharpLibraryForExcel
             }
 
             mMqttClient.MqttMsgPublishReceived += MqttMsgPublishReceived;
-            mMqttClient.Subscribe(new string[] { mTopic }, new byte[] { MqttMsgBase.QOS_LEVEL_AT_MOST_ONCE });
+            mMqttClient.Subscribe(new string[] { mTopic + "/REPLY" }, new byte[] { MqttMsgBase.QOS_LEVEL_AT_MOST_ONCE });
         }
 
-        private void publish(JObject msg)
+        public void publishMsg(JObject msg)
         {
             mMqttClient.Publish(
                 topic: mTopic,
@@ -209,39 +211,110 @@ namespace CSharpLibraryForExcel
                 retain: false);
         }
 
+        public int GetColumnOf(string value)
+        {
+            for (int c = 1; c <= mWorksheet.Dimension.End.Column; c++)
+            {
+                var cellValue = mWorksheet.Cells[mPropertyRow, c].Value;
+                if (cellValue != null && cellValue.Equals(value))
+                {
+                    return c;
+                }
+            }
+
+            throw new InvalidDataException("keyColumn 값과 일치하는 셀이 없습니다.");
+        }
+
+        public int GetRowOf(int column, string value)
+        {
+            for (int r = mStartRecordRow; r <= mWorksheet.Dimension.End.Row; r++)
+            {
+                var cellValue = mWorksheet.Cells[r, column].Value;
+                if (cellValue != null && cellValue.Equals(value))
+                {
+                    return r;
+                }
+            }
+
+            throw new InvalidDataException("key 값과 일치하는 셀이 없습니다.");
+        }
+
+        private bool isValid(JObject response)
+        {
+            if (response.GetValue("keyColumn") == null) return false;
+            if (response.GetValue("key") == null) return false;
+            if (response.GetValue("result") == null) return false;
+            if (response.GetValue("reason") == null) return false;
+
+            return true;
+        }
+
         [ComVisible(true)]
         public void Publish()
         {
             var messages = new List<JObject>();
 
-            using (ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName)))
-            {
-                ExcelWorksheet sheet = getSheet(xlPackage);
+            ExcelPackage xlPackage = new ExcelPackage(new FileInfo(mExcelFileName));
+            
+            mWorksheet = getSheet(xlPackage);
 
-                JArray records = composeRecords(sheet, mPropertyRow, mStartRecordRow);
+            JArray records = composeRecords(mWorksheet, mPropertyRow, mStartRecordRow);
 
-                List<JArray> chunks = chunkRecords(records, mChunkSize);
+            List<JArray> chunks = chunkRecords(records, mChunkSize);
 
-                int totalRecords = sheet.Dimension.End.Row - mStartRecordRow + 1;
-                messages = chunks.ToMessage(
-                    totalRecords: totalRecords,
-                    totalColumns: sheet.Dimension.End.Column,
-                    totalChunks: (int)Math.Ceiling((double)totalRecords / mChunkSize),
-                    chunkSize: mChunkSize);
-            }
+            int totalRecords = mWorksheet.Dimension.End.Row - mStartRecordRow + 1;
+            messages = chunks.ToMessage(
+                totalRecords: totalRecords,
+                totalColumns: mWorksheet.Dimension.End.Column,
+                totalChunks: (int)Math.Ceiling((double)totalRecords / mChunkSize),
+                chunkSize: mChunkSize);
 
             connect();
 
-            messages.ForEach(o => publish(o));
+            messages.ForEach(o => publishMsg(o));
         }
 
-        private static void MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
+        private void MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
         {
             var json = JObject.Parse(Encoding.UTF8.GetString(e.Message, 0, e.Message.Length));
-            if (json.GetValue("chunkSequence").Equals(json.GetValue("chunks")))
+            if (!isValid(json))
             {
-                mMqttClient.Disconnect();
+                throw new InvalidDataException("레코드 전송에 대한 응답 형식이 올바르지 않습니다.");
             }
+
+            int targetCol = GetColumnOf(json.GetValue("keyColumn").ToString());
+            int targetRow = GetRowOf(targetCol, json.GetValue("key").ToString());
+
+            Excel.Application xlApp;
+            try
+            {
+                xlApp = (Excel.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Excel.Application");
+            }
+            catch (Exception ex)
+            {
+                if (ex.ToString().Contains("0x800401E3 (MK_E_UNAVAILABLE)"))
+                {
+                    xlApp = new Excel.Application();
+                }
+                else
+                {
+                    throw;
+                }
+            }
+            Excel.Workbook xlWorkbook = xlApp.Workbooks.Open(mExcelFileName);
+            Excel.Worksheet xlWorksheet = xlWorkbook.Worksheets[mExcelSheetName];
+            Excel.Range targetCell = xlWorksheet.Cells[targetRow, targetCol];
+            if (json.GetValue("result").ToString().Equals("OK"))
+            {
+                targetCell.Interior.ColorIndex = 35;
+            }
+            else
+            {
+                targetCell.ClearComments();
+                targetCell.AddComment(json.GetValue("reason").ToString());
+                targetCell.Interior.ColorIndex = 36;
+            }
+            xlWorkbook.Save();
         }
     }
 }
