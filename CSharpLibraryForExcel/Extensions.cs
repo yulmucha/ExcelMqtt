@@ -7,11 +7,15 @@ namespace CSharpLibraryForExcel
 {
     public static class Extensions
     {
-        public static IEnumerable<string> SelectRow(this ExcelWorksheet sheet, int row)
+        public static List<string> SelectRow(this ExcelWorksheet sheet, int row)
         {
-            return sheet
-                .Cells[row, 1, row, sheet.Dimension.End.Column]
-                .Select(c => c.Value == null ? string.Empty : c.Value.ToString());
+            var result = new List<string>(sheet.Dimension.End.Column);
+            for (int col = 1; col <= sheet.Dimension.End.Column; col++)
+            {
+                var cell = sheet.Cells[row, col];
+                result.Add(cell.Value == null ? string.Empty : cell.Value.ToString());
+            }
+            return result;
         }
         public static List<JObject> ToMessage(this List<JArray> chunks, int totalRecords, int totalColumns, int totalChunks, int chunkSize)
         {

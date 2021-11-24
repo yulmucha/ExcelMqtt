@@ -23,27 +23,30 @@ namespace CSharpLibraryForExcel
             get { return mWorksheet.Dimension.End.Row - mConfig.StartRecordRow + 1; }
         }
 
-        public JArray Records
+        public JArray RecordsJson
         {
             get
             {
                 var columnNames = mWorksheet.SelectRow(mConfig.PropertyRow);
 
-                var records = new JArray();
+                var recordsJson = new JArray();
                 for (int rowNum = mConfig.StartRecordRow; rowNum <= mWorksheet.Dimension.End.Row; rowNum++)
                 {
-                    records.Add(labelRow(columnNames, mWorksheet.SelectRow(rowNum)));
+                    recordsJson.Add(labelRow(columnNames, mWorksheet.SelectRow(rowNum)));
                 }
 
-                return records;
+                return recordsJson;
             }
         }
 
         public ExcelMqttHandler(Config mConfig)
         {
             this.mConfig = mConfig;
+            
             mExcelPackage = new ExcelPackage(new FileInfo(mConfig.ExcelFileName));
+            
             mWorksheet = getSheet(mExcelPackage);
+            
             mMqttClient = new MqttClient(
                 brokerHostName: mConfig.BrokerHostName,
                 brokerPort: mConfig.BrokerPort,
@@ -53,8 +56,8 @@ namespace CSharpLibraryForExcel
 
         public void Publish()
         {
-            List<JArray> chunks = chunkRecords(Records, mConfig.ChunkSize);
-            
+            List<JArray> chunks = chunkRecords(RecordsJson, mConfig.ChunkSize);
+
             var messages = new List<JObject>();
             messages = chunks.ToMessage(
                 totalRecords: TotalRecords,
@@ -105,7 +108,7 @@ namespace CSharpLibraryForExcel
             }
         }
 
-        private JObject labelRow(IEnumerable<string> columnNames, IEnumerable<string> row)
+        private JObject labelRow(List<string> columnNames, List<string> row)
         {
             var rowObj = new JObject();
             for (int i = 0; i < row.Count(); i++)
