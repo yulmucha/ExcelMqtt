@@ -4,17 +4,17 @@ namespace CSharpLibraryForExcel
 {
     public class Config
     {
-        public string ExcelFileName { get; set; }
-        public string ExcelSheetName { get; set; }
-        public string BrokerHostName { get; set; }
-        public int BrokerPort { get; set; }
-        public string ClientId { get; set; }
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string Topic { get; set; }
-        public int PropertyRow { get; set; }
-        public int StartRecordRow { get; set; }
-        public int ChunkSize { get; set; }
+        public string ExcelFileName { get; private set; }
+        public string ExcelSheetName { get; private set; }
+        public string BrokerHostName { get; private set; }
+        public int BrokerPort { get; private set; }
+        public string ClientId { get; private set; }
+        public string Username { get; private set; }
+        public string Password { get; private set; }
+        public string Topic { get; private set; }
+        public int PropertyRow { get; private set; }
+        public int StartRecordRow { get; private set; }
+        public int ChunkSize { get; private set; }
 
         public Config(
             string excelFileName,

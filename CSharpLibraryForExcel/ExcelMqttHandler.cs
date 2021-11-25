@@ -1,9 +1,6 @@
 ﻿using Newtonsoft.Json.Linq;
-using OfficeOpenXml;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
@@ -14,38 +11,49 @@ namespace CSharpLibraryForExcel
     public class ExcelMqttHandler
     {
         private readonly Config mConfig;
-        private readonly ExcelPackage mExcelPackage;
-        private readonly ExcelWorksheet mWorksheet;
+        private readonly Excel.Application mXlApp;
+        private readonly Excel.Workbook mXlWorkbook;
+        private readonly Excel.Worksheet mXlWorksheet;
         private readonly MqttClient mMqttClient;
 
         public int TotalRecords
         {
-            get { return mWorksheet.Dimension.End.Row - mConfig.StartRecordRow + 1; }
+            get { return XlLastRow - mConfig.StartRecordRow + 1; }
         }
 
-        public JArray RecordsJson
+        public int XlLastRow
         {
-            get
-            {
-                var columnNames = mWorksheet.SelectRow(mConfig.PropertyRow);
+            get { return mXlWorksheet.Cells.SpecialCells(Excel.XlCellType.xlCellTypeLastCell, Type.Missing).Row;  }
+        }
 
-                var recordsJson = new JArray();
-                for (int rowNum = mConfig.StartRecordRow; rowNum <= mWorksheet.Dimension.End.Row; rowNum++)
-                {
-                    recordsJson.Add(labelRow(columnNames, mWorksheet.SelectRow(rowNum)));
-                }
-
-                return recordsJson;
-            }
+        public int XlLastColumn
+        {
+            get { return mXlWorksheet.Cells.SpecialCells(Excel.XlCellType.xlCellTypeLastCell, Type.Missing).Column; }
         }
 
         public ExcelMqttHandler(Config mConfig)
         {
             this.mConfig = mConfig;
+
+            try
+            {
+                mXlApp = (Excel.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Excel.Application");
+            }
+            catch (Exception ex)
+            {
+                if (ex.ToString().Contains("0x800401E3 (MK_E_UNAVAILABLE)"))
+                {
+                    mXlApp = new Excel.Application();
+                }
+                else
+                {
+                    throw;
+                }
+            }
+
+            mXlWorkbook = mXlApp.Workbooks.Open(mConfig.ExcelFileName);
             
-            mExcelPackage = new ExcelPackage(new FileInfo(mConfig.ExcelFileName));
-            
-            mWorksheet = getSheet(mExcelPackage);
+            mXlWorksheet = getSheet();
             
             mMqttClient = new MqttClient(
                 brokerHostName: mConfig.BrokerHostName,
@@ -56,15 +64,14 @@ namespace CSharpLibraryForExcel
 
         public void Publish()
         {
-            List<JArray> chunks = chunkRecords(RecordsJson, mConfig.ChunkSize);
+            List<JArray> chunks = chunkRecords(mXlWorksheet.ToRecordsJson(mConfig), mConfig.ChunkSize);
 
-            var messages = new List<JObject>();
-            messages = chunks.ToMessage(
+            List<JObject> messages = chunks.ToMessage(
                 totalRecords: TotalRecords,
-                totalColumns: mWorksheet.Dimension.End.Column,
+                totalColumns: XlLastColumn,
                 totalChunks: (int)Math.Ceiling((double)TotalRecords / mConfig.ChunkSize),
                 chunkSize: mConfig.ChunkSize);
-
+            
             mMqttClient.Connect(
                 clientId: mConfig.ClientId,
                 username: mConfig.Username,
@@ -85,49 +92,23 @@ namespace CSharpLibraryForExcel
                 retain: false));
         }
 
-        private int totalRecords()
+        private Excel.Worksheet getSheet()
         {
-            return mWorksheet.Dimension.End.Row - mConfig.StartRecordRow + 1;
-        }
-
-        private ExcelWorksheet getSheet(ExcelPackage xlPackage)
-        {
-            if (xlPackage.Workbook.Worksheets.Count == 1)
+            if (mXlWorkbook.Worksheets.Count == 1)
             {
-                return xlPackage.Workbook.Worksheets.First();
+                return mXlWorkbook.Worksheets[1];
             }
             else
             {
-                var sheet = xlPackage.Workbook.Worksheets[mConfig.ExcelSheetName];
-                if (sheet == null)
+                try
                 {
-                    throw new InvalidDataException("엑셀 시트 이름이 올바르지 않습니다.");
+                    return mXlWorkbook.Worksheets[mConfig.ExcelSheetName];
                 }
-
-                return sheet;
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    throw new ArgumentException("엑셀 시트 이름이 올바르지 않습니다.");
+                }
             }
-        }
-
-        private JObject labelRow(List<string> columnNames, List<string> row)
-        {
-            var rowObj = new JObject();
-            for (int i = 0; i < row.Count(); i++)
-            {
-                rowObj.Add(columnNames.ElementAt(i), row.ElementAt(i));
-            }
-            return rowObj;
-        }
-
-        private JArray composeRecords()
-        {
-            var columnNames = mWorksheet.SelectRow(mConfig.PropertyRow);
-            var records = new JArray();
-            for (int rowNum = mConfig.StartRecordRow; rowNum <= mWorksheet.Dimension.End.Row; rowNum++)
-            {
-                records.Add(labelRow(columnNames, mWorksheet.SelectRow(rowNum)));
-            }
-
-            return records;
         }
 
         private List<JArray> chunkRecords(JArray records, int chunkSize)
@@ -156,64 +137,61 @@ namespace CSharpLibraryForExcel
             return true;
         }
 
-        private int getColumnOf(string value)
+        private bool tryGetColumnOf(string value, out int? colNum)
         {
-            for (int c = 1; c <= mWorksheet.Dimension.End.Column; c++)
+            colNum = null;
+
+            for (int c = 1; c <= XlLastColumn; c++)
             {
-                var cellValue = mWorksheet.Cells[mConfig.PropertyRow, c].Value;
+                var cellValue = mXlWorksheet.Cells[mConfig.PropertyRow, c].Value;
                 if (cellValue != null && cellValue.Equals(value))
                 {
-                    return c;
+                    colNum = c;
+                    return true;
                 }
             }
 
-            throw new InvalidDataException("keyColumn 값과 일치하는 셀이 없습니다.");
+            return false;
         }
 
-        private int getRowOf(int column, string value)
+        private bool tryGetRowOf(int column, string value, out int? rowNum)
         {
-            for (int r = mConfig.StartRecordRow; r <= mWorksheet.Dimension.End.Row; r++)
+            rowNum = null;
+
+            for (int r = mConfig.StartRecordRow; r <= XlLastRow; r++)
             {
-                var cellValue = mWorksheet.Cells[r, column].Value;
+                var cellValue = mXlWorksheet.Cells[r, column].Value;
                 if (cellValue != null && cellValue.Equals(value))
                 {
-                    return r;
+                    rowNum = r;
+                    return true;
                 }
             }
 
-            throw new InvalidDataException("key 값과 일치하는 셀이 없습니다.");
+            return false;
         }
 
         private void MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
         {
             var json = JObject.Parse(Encoding.UTF8.GetString(e.Message, 0, e.Message.Length));
+            
             if (!isValid(json))
             {
-                throw new InvalidDataException("레코드 전송에 대한 응답 형식이 올바르지 않습니다.");
+                //throw new InvalidDataException("레코드 전송에 대한 응답 형식이 올바르지 않습니다.");
+                return;
             }
 
-            int targetCol = getColumnOf(json.GetValue("keyColumn").ToString());
-            int targetRow = getRowOf(targetCol, json.GetValue("key").ToString());
+            if (!tryGetColumnOf(json.GetValue("keyColumn").ToString(), out int? targetCol))
+            {
+                return;
+            }
 
-            Excel.Application xlApp;
-            try
+            if (!tryGetRowOf(targetCol.Value, json.GetValue("key").ToString(), out int? targetRow))
             {
-                xlApp = (Excel.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Excel.Application");
+                return;
             }
-            catch (Exception ex)
-            {
-                if (ex.ToString().Contains("0x800401E3 (MK_E_UNAVAILABLE)"))
-                {
-                    xlApp = new Excel.Application();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-            Excel.Workbook xlWorkbook = xlApp.Workbooks.Open(mConfig.ExcelFileName);
-            Excel.Worksheet xlWorksheet = xlWorkbook.Worksheets[mConfig.ExcelSheetName];
-            Excel.Range targetCell = xlWorksheet.Cells[targetRow, targetCol];
+                        
+            Excel.Range targetCell = mXlWorksheet.Cells[targetRow.Value, targetCol.Value];
             if (json.GetValue("result").ToString().Equals("OK"))
             {
                 targetCell.Interior.ColorIndex = 35;
@@ -224,7 +202,7 @@ namespace CSharpLibraryForExcel
                 targetCell.AddComment(json.GetValue("reason").ToString());
                 targetCell.Interior.ColorIndex = 36;
             }
-            xlWorkbook.Save();
+            mXlWorkbook.Save();
         }
     }
 }
