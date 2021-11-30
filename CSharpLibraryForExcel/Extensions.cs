@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json.Linq;
+using OfficeOpenXml;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,6 +9,19 @@ namespace CSharpLibraryForExcel
 {
     public static class Extensions
     {
+        public static bool IsEmptyRow(this ExcelWorksheet sheet, int row)
+        {
+            for (int col = 1; col <= sheet.Dimension.End.Column; col++)
+            {
+                if (sheet.Cells[row, col].Value != null)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         public static List<string> SelectRow(this Excel.Worksheet sheet, int row)
         {
             int lastCol = sheet.Cells.SpecialCells(Excel.XlCellType.xlCellTypeLastCell, Type.Missing).Column;

@@ -113,6 +113,7 @@ namespace CSharpLibraryForExcel
             var xl = new ExcelCOM(config);
             var mqtt = new MqttHandler(config);
             xl.GetMqttMessages().ForEach(message => mqtt.Publish(message));
+            xl.Dispose();
         }
     }
 }

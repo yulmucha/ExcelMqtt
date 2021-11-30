@@ -21,10 +21,7 @@ namespace CSharpLibraryForExcel
                 brokerPort: mConfig.BrokerPort,
                 secure: false,
                 caCert: null);
-        }
 
-        public void Publish(JObject msg)
-        {
             mMqttClient.Connect(
                 clientId: mConfig.ClientId,
                 username: mConfig.Username,
@@ -35,14 +32,22 @@ namespace CSharpLibraryForExcel
                 throw new Exception("MqttClient failed to connect.");
             }
 
-            //mMqttClient.MqttMsgPublishReceived += MqttMsgPublishReceived;
-            //mMqttClient.Subscribe(new string[] { mConfig.Topic + "/REPLY" }, new byte[] { MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE });
+            mMqttClient.MqttMsgPublishReceived += MqttMsgPublishReceived;
+            mMqttClient.Subscribe(new string[] { mConfig.Topic + "/REPLY" }, new byte[] { MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE });
+        }
 
+        public void Publish(JObject msg)
+        {
             mMqttClient.Publish(
                 topic: mConfig.Topic,
                 message: Encoding.UTF8.GetBytes(msg.ToString()),
                 qosLevel: MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE,
                 retain: false);
+        }
+
+        private void MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
+        {
+            var json = JObject.Parse(Encoding.UTF8.GetString(e.Message, 0, e.Message.Length));
         }
     }
 }

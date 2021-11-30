@@ -1,18 +1,17 @@
-﻿using Microsoft.Office.Interop.Excel;
+﻿using Excel = Microsoft.Office.Interop.Excel;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OfficeOpenXml;
 
 namespace CSharpLibraryForExcel
 {
     public class ExcelCOM
     {
         private readonly Config mConfig;
-        private readonly Application mApp;
-        private readonly Workbook mWorkbook;
-        private readonly Worksheet mWorksheet;
-
+        private readonly ExcelPackage mExcelPackage;
+        private readonly ExcelWorksheet mWorksheet;
 
         public int TotalRecords
         {
@@ -21,12 +20,20 @@ namespace CSharpLibraryForExcel
 
         public int LastRow
         {
-            get { return mWorksheet.Cells.SpecialCells(XlCellType.xlCellTypeLastCell, Type.Missing).Row; }
+            get
+            {
+                var lastRow = mWorksheet.Dimension.End.Row;
+                while (mWorksheet.IsEmptyRow(lastRow))
+                {
+                    lastRow--;
+                }
+                return lastRow;
+            }
         }
 
         public int LastColumn
         {
-            get { return mWorksheet.Cells.SpecialCells(XlCellType.xlCellTypeLastCell, Type.Missing).Column; }
+            get { return mWorksheet.Dimension.End.Column; }
         }
 
         public int TotalChunks
@@ -53,44 +60,20 @@ namespace CSharpLibraryForExcel
 
         public ExcelCOM(Config config)
         {
-            this.mConfig = config;
-
-            try
-            {
-                mApp = (Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Excel.Application");
-            }
-            catch (Exception ex)
-            {
-                if (ex.ToString().Contains("0x800401E3 (MK_E_UNAVAILABLE)"))
-                {
-                    mApp = new Application();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            mWorkbook = mApp.Workbooks.Open(mConfig.ExcelFileName);
+            mConfig = config;
+            mExcelPackage = new ExcelPackage(config.ExcelFileName);
             mWorksheet = GetSheet();
         }
 
-        public Worksheet GetSheet()
+        public ExcelWorksheet GetSheet()
         {
-            if (mWorkbook.Worksheets.Count == 1)
+            try
             {
-                return mWorkbook.Worksheets[1];
+                return mExcelPackage.Workbook.Worksheets[mConfig.ExcelSheetName];
             }
-            else
+            catch (System.Runtime.InteropServices.COMException)
             {
-                try
-                {
-                    return mWorkbook.Worksheets[mConfig.ExcelSheetName];
-                }
-                catch (System.Runtime.InteropServices.COMException)
-                {
-                    throw new ArgumentException("존재하지 않는 엑셀 시트 이름입니다.");
-                }
+                throw new ArgumentException("존재하지 않는 엑셀 시트 이름입니다.");
             }
         }
 
@@ -104,7 +87,8 @@ namespace CSharpLibraryForExcel
             JArray result = new JArray();
             for (int col = 1; col <= LastColumn; col++)
             {
-                result.Add(mWorksheet.Cells[row, col].Value);
+                var value = mWorksheet.Cells[row, col].Value;
+                result.Add(value);
             }
             return result;
         }
@@ -155,7 +139,7 @@ namespace CSharpLibraryForExcel
 
         public List<JObject> GetMqttMessages()
         {
-            return ChunkRecordsJson(GetRecordsJson()).Select((c, i) => new JObject
+            var result = ChunkRecordsJson(GetRecordsJson()).Select((c, i) => new JObject
             {
                 { "rows", TotalRecords },
                 { "chunkSequence", i + 1},
@@ -164,12 +148,14 @@ namespace CSharpLibraryForExcel
                 { "columns", Columns.Count},
                 { "data", c }
             }).ToList();
+
+            return result;
         }
 
         public int GetColumnNumberOf(string keyColumn)
         {
             int result = Columns.IndexOf(keyColumn);
-            
+
             if (result == -1)
             {
                 throw new ArgumentException("일치하는 keyColumn 값이 없음");
@@ -193,7 +179,7 @@ namespace CSharpLibraryForExcel
 
         public void Dispose()
         {
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(mWorksheet);
+            mExcelPackage.Dispose();
         }
     }
 }
