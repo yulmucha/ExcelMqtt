@@ -110,8 +110,9 @@ namespace CSharpLibraryForExcel
                 startRecordRow: mStartRecordRow,
                 chunkSize: mChunkSize);
 
-            var handler = new ExcelMqttHandler(config);
-            handler.Publish();
+            var xl = new ExcelCOM(config);
+            var mqtt = new MqttHandler(config);
+            xl.GetMqttMessages().ForEach(message => mqtt.Publish(message));
         }
     }
 }
