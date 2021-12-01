@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using OfficeOpenXml;
+using System.Diagnostics;
 
 namespace CSharpLibraryForExcel
 {
@@ -12,6 +13,7 @@ namespace CSharpLibraryForExcel
         private readonly Config mConfig;
         private readonly ExcelPackage mExcelPackage;
         private readonly ExcelWorksheet mWorksheet;
+        public Excel.Workbook mXlWorkbook;
 
         public int TotalRecords
         {
@@ -62,10 +64,11 @@ namespace CSharpLibraryForExcel
         {
             mConfig = config;
             mExcelPackage = new ExcelPackage(config.ExcelFileName);
-            mWorksheet = GetSheet();
+            mWorksheet = getSheet();
+            mXlWorkbook = createWorkbookForEdit();
         }
 
-        public ExcelWorksheet GetSheet()
+        private ExcelWorksheet getSheet()
         {
             try
             {
@@ -75,6 +78,81 @@ namespace CSharpLibraryForExcel
             {
                 throw new ArgumentException("존재하지 않는 엑셀 시트 이름입니다.");
             }
+        }
+
+        public Excel.Workbook createWorkbookForEdit()
+        {
+            Excel.Application xlApp;
+            try
+            {
+                xlApp = (Excel.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Excel.Application");
+            }
+            catch (Exception ex)
+            {
+                if (ex.ToString().Contains("0x800401E3 (MK_E_UNAVAILABLE)"))
+                {
+                    xlApp = new Excel.Application();
+                }
+                else
+                {
+                    throw;
+                }
+            }
+
+            try
+            {
+                return xlApp.Workbooks.Open(mConfig.ExcelFileName);
+            }
+            catch
+            {
+                Debug.WriteLine("엑셀 파일이 수정 상태에 있음");
+                throw;
+            }
+        }
+
+        public void MarkCellOK(int row, int col)
+        {
+            colorCell(row, col, 35);
+            clearComments(row, col);
+            mXlWorkbook.Save();
+        }
+
+        public void MarkCellNK(int row, int col, string comment)
+        {
+            colorCell(row, col, 36);
+            commentCell(row, col, comment);
+            mXlWorkbook.Save();
+        }
+
+        private Excel.Range getCellForEdit(int row, int col)
+        {
+            try
+            {
+                return mXlWorkbook.Worksheets[mConfig.ExcelSheetName].Cells[row, col];
+            }
+            catch
+            {
+                Debug.WriteLine("엑셀 파일이 수정 상태에 있음");
+                throw;
+            }
+        }
+
+        private void colorCell(int row, int col, int colorIndex)
+        {
+            getCellForEdit(row, col).Interior.ColorIndex = colorIndex;
+        }
+
+        private void clearComments(int row, int col)
+        {
+            getCellForEdit(row, col).ClearComments();
+        }
+
+        private void commentCell(int row, int col, string comment)
+        {
+            Excel.Range targetCell = getCellForEdit(row, col);
+
+            targetCell.ClearComments();
+            targetCell.AddComment(comment);
         }
 
         public JArray GetRowJson(int row)
@@ -156,17 +234,12 @@ namespace CSharpLibraryForExcel
         {
             int result = Columns.IndexOf(keyColumn);
 
-            if (result == -1)
-            {
-                throw new ArgumentException("일치하는 keyColumn 값이 없음");
-            }
-
             return result + 1;
         }
 
         public int GetRowNumberOf(dynamic key, int columnNumber)
         {
-            for (int row = 1; row <= LastRow; row++)
+            for (int row = mConfig.StartRecordRow; row <= LastRow; row++)
             {
                 if (key.Equals(mWorksheet.Cells[row, columnNumber].Value))
                 {
@@ -174,7 +247,7 @@ namespace CSharpLibraryForExcel
                 }
             }
 
-            throw new ArgumentException("일치하는 key 값이 없음");
+            return 0;
         }
 
         public void Dispose()

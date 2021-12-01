@@ -1,14 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using uPLibrary.Networking.M2Mqtt;
-using uPLibrary.Networking.M2Mqtt.Messages;
-using Excel = Microsoft.Office.Interop.Excel;
+﻿using System.Runtime.InteropServices;
 
 namespace CSharpLibraryForExcel
 {
@@ -111,9 +101,8 @@ namespace CSharpLibraryForExcel
                 chunkSize: mChunkSize);
 
             var xl = new ExcelCOM(config);
-            var mqtt = new MqttHandler(config);
+            var mqtt = new MqttHandler(config, xl);
             xl.GetMqttMessages().ForEach(message => mqtt.Publish(message));
-            xl.Dispose();
         }
     }
 }
