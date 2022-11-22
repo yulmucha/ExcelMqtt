@@ -4,8 +4,14 @@
 VBA에서 C# library(.dll)를 참조하여 사용할 수 있도록 하는 것.
 
 ## 사소한(?) 문제
-사용자가 직접 관리자 권한으로 Powershell을 열어, 작성해 둔 스크립트(Release 폴더와 함께 있는 register_for_COM_interop.ps1)를 찾아 실행해야 함.
-그렇게 해야 VBA에서 참조 가능한 .tlb 파일이 만들어짐.
+사용자가 직접 관리자 권한으로 Powershell을 열어 커맨드를 실행해야 함.
+```powershell
+$dotnetVersion = Get-ChildItem $env:windir\Microsoft.NET\Framework64 -Name | Select-String "v" | Select -last 1
+$exePath = echo $env:windir\Microsoft.Net\Framework64\${dotnetVersion}\RegAsm.exe
+
+& $exePath $installPath\CSharpLibraryForExcel.dll /tlb /codebase
+```
+이렇게 해야 엑셀 VBA에서 참조 가능한 .tlb 파일이 만들어짐.
 
 ## 설치 및 실행 매뉴얼
 1. 라이브러리 파일 준비
