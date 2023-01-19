@@ -33,11 +33,11 @@ Set tools = New ExcelMqtt
 
 tools.SetExcelFileName (Application.ActiveWorkbook.FullName)
 tools.SetExcelSheetName ("sheet1")
-tools.SetBrokerHostName ("esb.myivision.com")
+tools.SetBrokerHostName ("xxx.xxxxx.com")
 tools.SetBrokerPort (1884)
 tools.SetClientId ("ExcelVBA")
 tools.SetUsername ("mqttuser9")
-tools.SetPassword ("qhdkscjfwj123")
+tools.SetPassword ("password")
 tools.SetTopic ("/excel")
 tools.SetPropertyRow (2)
 tools.SetStartRecordRow (4)
