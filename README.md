@@ -1,5 +1,6 @@
 # ExcelMqtt
 ## 목적
+셀 데이터들을 읽어서 MQTT로 publish.
 엑셀 시트 내 버튼에 매크로 지정할 때 Visual Basic for Applications(VBA)가 활용되는데,  
 VBA에서 C# library(.dll)를 참조하여 사용할 수 있도록 하는 것.
 
